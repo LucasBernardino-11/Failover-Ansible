@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+LOGGER_BIN="$(command -v logger || echo /usr/bin/logger)"
+
+if /usr/local/bin/ip-sla-check.sh; then
+  /usr/local/bin/route_primary_rt2.sh
+  $LOGGER_BIN -t ip-sla "switch: PRIMARY aplicado"
+else
+  /usr/local/bin/route_backup_rt2.sh
+  $LOGGER_BIN -t ip-sla "switch: BACKUP aplicado"
+fi

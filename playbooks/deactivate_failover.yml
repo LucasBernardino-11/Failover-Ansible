@@ -1,0 +1,36 @@
+---
+- name: Desativar Failover IP-SLA
+  hosts: site_padrao
+  become: true
+  gather_facts: false
+
+  vars:
+    table_id: "rt2"  # Definindo o nome da tabela de roteamento
+
+  tasks:
+    - name: Parar service e timer de failover
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - ip-sla.service
+        - ip-sla.timer
+      ignore_errors: true
+
+    - name: Remover rota da tabela (opcional)
+      shell: |
+        ip route flush table {{ table_id }} || true
+      changed_when: false
+
+    - name: Verificar estado após a desativação
+      shell: |
+        echo '=== ip rule ==='
+        ip rule show | sed -n '1,200p'
+        echo
+        echo '=== rotas {{ table_id }} ==='
+        ip route show table {{ table_id }} || true
+      register: diag
+      changed_when: false
+
+    - debug:
+        msg: "{{ diag.stdout }}"

@@ -1,0 +1,13 @@
+- name: Deploy IP-SLA routing with systemd timer (rt2)
+  hosts: site_padrao
+  become: true
+
+  pre_tasks:
+    - name: Carregar variáveis (all)
+      include_vars: ../group_vars/all.yml
+    - name: Carregar variáveis (site_padrao)
+      include_vars: ../group_vars/site_padrao.yml
+      ignore_errors: yes
+
+  roles:
+    - ip_sla_timer

@@ -1,0 +1,64 @@
+---
+- name: Remover completamente automação IP-SLA e failover
+  hosts: site_padrao
+  become: true
+  gather_facts: false
+
+  vars:
+    systemd_units:
+      - ip-sla.service
+      - ip-sla.timer
+      - ip-rule-rt2.service
+    bin_scripts:
+      - /usr/local/bin/ip-sla-check.sh
+      - /usr/local/bin/ip-sla-switch.sh
+      - /usr/local/bin/route_primary_rt2.sh
+      - /usr/local/bin/route_backup_rt2.sh
+      - /usr/local/bin/check_targets.sh
+    systemd_paths:
+      - /etc/systemd/system/ip-sla.service
+      - /etc/systemd/system/ip-sla.timer
+      - /etc/systemd/system/ip-rule-rt2.service
+      - /run/route_rt2.lock
+
+  tasks:
+    - name: Parar e desabilitar serviços systemd relacionados
+      systemd:
+        name: "{{ item }}"
+        enabled: false
+        state: stopped
+      ignore_errors: true
+      loop: "{{ systemd_units }}"
+
+    - name: Remover arquivos binários
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ bin_scripts }}"
+      ignore_errors: true
+
+    - name: Remover unidades systemd
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ systemd_paths }}"
+      ignore_errors: true
+
+    - name: Recarregar daemon systemd
+      command: systemctl daemon-reload
+
+    - name: Limpar rotas da tabela rt2 (opcional)
+      shell: ip route flush table rt2 || true
+      ignore_errors: true
+
+    - name: Remover regra de política de roteamento (caso exista)
+      shell: ip rule del priority 1000 || true
+      ignore_errors: true
+
+    - name: Confirmar remoção
+      debug:
+        msg: |
+          ✅ Automação IP-SLA completamente removida.
+          - Serviços e timers apagados
+          - Scripts excluídos
+          - Rotas e regras limpas

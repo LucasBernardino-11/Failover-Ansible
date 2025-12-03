@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Script gerado pelo Ansible para checar o gateway ativo do IP-SLA
+# Saída compatível para Zabbix
+
+GW_PRIMARY="{{ ip_sla.gw_primary }}"
+GW_BACKUP="{{ ip_sla.gw_backup }}"
+TABLE="{{ ip_sla.table_name }}"
+DESTS="{{ ip_sla.tracked_dests | join(' ') }}"
+
+ACTIVE_GW="unknown"
+
+# Checa qual gateway está sendo usado para os destinos
+for d in $DESTS; do
+    gw=$(ip route get $d table $TABLE 2>/dev/null | awk '/via/ {print $3; exit}')
+    if [[ -n "$gw" ]]; then
+        ACTIVE_GW="$gw"
+        break
+    fi
+done
+
+echo "$ACTIVE_GW"
+exit 0

@@ -1,0 +1,69 @@
+- name: Garantir tabela rt2 em /etc/iproute2/rt_tables
+  lineinfile:
+    path: /etc/iproute2/rt_tables
+    regexp: '^\s*{{ ip_sla.table_id }}\s+{{ ip_sla.table_name }}\b'
+    line: '{{ ip_sla.table_id }} {{ ip_sla.table_name }}'
+    state: present
+
+- name: Criar diretório de estado
+  file:
+    path: /var/lib/ip-sla
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Instalar scripts (check/switch e force)
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0755"
+  loop:
+    - { src: "ip-sla-check.sh.j2",     dest: "/usr/local/bin/ip-sla-check.sh" }
+    - { src: "ip-sla-switch.sh.j2",    dest: "/usr/local/bin/ip-sla-switch.sh" }
+    - { src: "route_primary_rt2.sh.j2", dest: "/usr/local/bin/route_primary_rt2.sh" }
+    - { src: "route_backup_rt2.sh.j2",  dest: "/usr/local/bin/route_backup_rt2.sh" }
+
+- name: Instalar unidades systemd (rule/service/timer)
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - { src: "ip-rule-rt2.service.j2", dest: "/etc/systemd/system/ip-rule-rt2.service" }
+    - { src: "ip-sla.service.j2",      dest: "/etc/systemd/system/ip-sla.service" }
+    - { src: "ip-sla.timer.j2",        dest: "/etc/systemd/system/ip-sla.timer" }
+
+- name: systemd daemon-reload
+  systemd: { daemon_reload: true }
+
+- name: Habilitar política (ip rule)
+  systemd:
+    name: ip-rule-rt2.service
+    enabled: true
+    state: started
+
+- name: Parar/Remover Keepalived (evitar conflito)
+  package:
+    name: keepalived
+    state: absent
+
+- name: Remover arquivo de configuração do Keepalived (se existir)
+  file: { path: /etc/keepalived/keepalived.conf, state: absent }
+
+- name: Habilitar e iniciar timer
+  systemd:
+    name: ip-sla.timer
+    enabled: true
+    state: started
+
+- name: Primar rotas já no deploy (executar switch uma vez)
+  command: /usr/local/bin/ip-sla-switch.sh
+  register: prime_out
+  changed_when: false
+  failed_when: false
+
+- name: Exibir resultado do prime
+  debug:
+    var: prime_out.stdout
+  run_once: true

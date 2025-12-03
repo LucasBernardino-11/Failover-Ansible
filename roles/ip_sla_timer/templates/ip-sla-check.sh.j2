@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IP_BIN="$(command -v ip || echo /sbin/ip)"
+PING_BIN="$(command -v ping || echo /bin/ping)"
+TIMEOUT_BIN="$(command -v timeout || echo /usr/bin/timeout)"
+LOGGER_BIN="$(command -v logger || echo /usr/bin/logger)"
+
+GW_PRI="{{ ip_sla.gw_primary }}"
+GW_BKP="{{ ip_sla.gw_backup }}"
+MIN_OK="{{ ip_sla.min_ok | default(1) }}"
+DESTS=({% for d in ip_sla.tracked_dests %}{{ d }} {% endfor %})
+
+detect_dev() {
+  local gw="$1" dev=""
+  dev=$($IP_BIN -o route get "$gw" 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="dev"){print $(i+1); exit}}' || true)
+  if [[ -n "$dev" ]]; then echo "$dev"; return 0; fi
+  dev=$($IP_BIN -o -4 addr show up scope global | awk '$4 ~ /^177\.53\.17\./ {print $2; exit}')
+  [[ -n "$dev" ]] && echo "$dev" || return 1
+}
+
+DEV="$($IP_BIN -o -4 route get "$GW_PRI" 2>/dev/null | awk "/dev/ {print \$5; exit}" || true)"
+[[ -z "$DEV" ]] && DEV="$(detect_dev "$GW_BKP")" || true
+
+ok=0; pids=()
+for d in "${DESTS[@]}"; do
+  ( $TIMEOUT_BIN 1 $PING_BIN -I "$DEV" -c 1 -W 1 -w 1 "$d" >/dev/null 2>&1 && echo "$d" ) &
+  pids+=($!)
+done
+for pid in "${pids[@]}"; do
+  if wait "$pid" >/dev/null 2>&1; then
+    ok=$((ok+1))
+    [[ $ok -ge $MIN_OK ]] && break
+  fi
+done
+
+if [[ $ok -ge $MIN_OK ]]; then
+  echo "ok"
+  exit 0
+else
+  echo "fail"
+  exit 1
+fi

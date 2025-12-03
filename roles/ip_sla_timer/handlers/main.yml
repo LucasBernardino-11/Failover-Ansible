@@ -1,0 +1,4 @@
+- name: Run ip-rule now
+  systemd:
+    name: ip-rule-rt2.service
+    state: started

@@ -1,0 +1,6 @@
+- name: Force BACKUP routes (rt2)
+  hosts: site_padrao
+  become: true
+  tasks:
+    - name: Apply backup routing now
+      command: /usr/local/bin/route_backup_rt2.sh

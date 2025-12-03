@@ -1,0 +1,13 @@
+[Unit]
+Description=Ensure ip rule for {{ ip_sla.table_name }} at boot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStartPre=-/sbin/ip rule del priority {{ ip_sla.policy_rule_priority }}
+ExecStart=/sbin/ip rule add priority {{ ip_sla.policy_rule_priority }} lookup {{ ip_sla.table_name }}
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

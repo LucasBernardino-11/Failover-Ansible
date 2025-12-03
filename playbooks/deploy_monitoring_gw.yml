@@ -1,0 +1,76 @@
+- name: Instalar Zabbix Agent e configurar monitoramento IP-SLA
+  hosts: site_padrao
+  become: yes
+
+  pre_tasks:
+    - name: Carregar variáveis (all)
+      include_vars: ../group_vars/all.yml
+
+    - name: Carregar variáveis (site_padrao)
+      include_vars: ../group_vars/site_padrao.yml
+
+  tasks:
+
+    - name: Mostrar variáveis carregadas do IP-SLA
+      debug:
+        var: ip_sla
+
+    - name: Instalar zabbix-agent
+      apt:
+        name: zabbix-agent
+        state: present
+        update_cache: yes
+
+    - name: Configurar UserParameter para rotas IP-SLA
+      copy:
+        dest: /usr/local/bin/ip_sla_zabbix_check.sh
+        mode: '0755'
+        content: |
+          #!/usr/bin/env bash
+          TABLE="{{ ip_sla.table_name }}"
+          DESTS=({{ ip_sla.tracked_dests | join(' ') }})
+          GW_PRIMARY="{{ ip_sla.gw_primary }}"
+          GW_BACKUP="{{ ip_sla.gw_backup }}"
+
+          COUNT_PRIMARY=0
+          COUNT_BACKUP=0
+
+          for d in "${DESTS[@]}"; do
+              gw=$(ip route get "$d" 2>/dev/null | awk '/via/ {print $3}')
+              if [[ "$gw" == "$GW_PRIMARY" ]]; then
+                  ((COUNT_PRIMARY++))
+              elif [[ "$gw" == "$GW_BACKUP" ]]; then
+                  ((COUNT_BACKUP++))
+              fi
+          done
+
+          TOTAL=$((COUNT_PRIMARY + COUNT_BACKUP))
+
+          if [[ "$COUNT_PRIMARY" -eq "$TOTAL" ]]; then
+              echo "PRIMARY"
+          elif [[ "$COUNT_BACKUP" -eq "$TOTAL" ]]; then
+              echo "BACKUP"
+          else
+              echo "MIXED"
+          fi
+
+    - name: Adicionar UserParameter no Zabbix agent
+      lineinfile:
+        dest: /etc/zabbix/zabbix_agentd.d/ip_sla.conf
+        line: 'UserParameter=ip_sla.status,/usr/local/bin/ip_sla_zabbix_check.sh'
+        create: yes
+
+    - name: Reiniciar zabbix-agent
+      systemd:
+        name: zabbix-agent
+        state: restarted
+        enabled: yes
+
+    - name: Garantir log do failover
+      copy:
+        dest: /var/log/ip-sla.log
+        owner: root
+        group: root
+        mode: '0644'
+        content: ''
+        force: no

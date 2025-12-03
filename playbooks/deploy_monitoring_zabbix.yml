@@ -1,0 +1,11 @@
+- name: Deploy IP-SLA monitoring for Zabbix
+  hosts: all
+  become: true
+
+  roles:
+    - role: ip_sla_timer
+      vars:
+        zabbix_user: zabbix
+        zabbix_group: zabbix
+        script_dir: /usr/local/bin
+        script_name: ip_sla_zabbix_check.sh

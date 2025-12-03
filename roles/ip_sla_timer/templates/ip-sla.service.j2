@@ -1,0 +1,10 @@
+[Unit]
+Description=IP-SLA switch (check + apply routes) for {{ ip_sla.table_name }}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ip-sla-switch.sh
+SuccessExitStatus=0 1
+

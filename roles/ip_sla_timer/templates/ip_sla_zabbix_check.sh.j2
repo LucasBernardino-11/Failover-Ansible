@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# -----------------------------------------------------------------------------
+# Script de monitoramento IP-SLA para Zabbix
+# Gera status de failover para checagem de rotas
+# Gerado via Ansible template, utilizando variáveis do host
+# -----------------------------------------------------------------------------
+
+set -euo pipefail
+
+# Variáveis do host
+TABLE="{{ ip_sla.table_name }}"
+GW_PRIMARY="{{ ip_sla.gw_primary }}"
+GW_BACKUP="{{ ip_sla.gw_backup }}"
+DESTS=({% for dest in ip_sla.tracked_dests %}{{ dest }} {% endfor %})
+MIN_OK={{ ip_sla.min_ok }}
+PING_TIMEOUT={{ ip_sla.ping_timeout | default(1) }}
+
+# Detecta interface do gateway
+detect_dev() {
+    local gw="$1"
+    dev=$(ip -o route get "$gw" 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="dev"){print $(i+1); exit}}' || true)
+    if [[ -n "$dev" ]]; then
+        echo "$dev"
+        return 0
+    fi
+    dev=$(ip -o -4 addr show up scope global | awk '$4 ~ /^{{ ip_sla.subnet_cidr.split("/")[0] }}/ {print $2; exit}')
+    [[ -n "$dev" ]] && echo "$dev" || return 1
+}
+
+DEV="$(detect_dev "$GW_PRIMARY" || detect_dev "$GW_BACKUP")" || { echo "no-dev"; exit 2; }
+
+# Função de checagem de conectividade
+ok=0
+for d in "${DESTS[@]}"; do
+    if ping -I "$DEV" -c 1 -W "$PING_TIMEOUT" "$d" >/dev/null 2>&1; then
+        ok=$((ok+1))
+        [[ $ok -ge $MIN_OK ]] && break
+    fi
+done
+
+# Retorna status para Zabbix
+if [[ $ok -ge $MIN_OK ]]; then
+    echo "PRIMARY_OK($ok)"
+    exit 0
+else
+    echo "BACKUP_TRIGGERED($ok)"
+    exit 1
+fi

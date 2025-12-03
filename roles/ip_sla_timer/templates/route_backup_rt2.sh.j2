@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IP_BIN="$(command -v ip || echo /sbin/ip)"
+GW="{{ ip_sla.gw_backup }}"
+TABLE_ID="{{ ip_sla.table_id | default('200') }}"
+
+detect_dev() {
+  local gw="$1" dev=""
+  dev=$($IP_BIN -o route get "$gw" 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="dev"){print $(i+1); exit}}' || true)
+  if [[ -n "$dev" ]]; then echo "$dev"; return 0; fi
+  dev=$($IP_BIN -o -4 addr show up scope global | awk '$4 ~ /^177\.53\.17\./ {print $2; exit}')
+  [[ -n "$dev" ]] && echo "$dev" || return 1
+}
+
+DEV=$(detect_dev "$GW") || { echo "no-dev"; exit 1; }
+
+DESTS=({% for d in ip_sla.tracked_dests %}{{ d }} {% endfor %})
+for dst in "${DESTS[@]}"; do
+  $IP_BIN route replace "$dst" via "$GW" dev "$DEV" onlink table "$TABLE_ID"
+done

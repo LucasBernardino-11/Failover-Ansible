@@ -1,0 +1,93 @@
+---
+- name: Gerar relatório HTML da tabela de rotas (rt2)
+  hosts: site_padrao
+  become: true
+  gather_facts: true
+
+  vars:
+    tabela: "rt2"
+    saida_html: "/tmp/relatorio_rotas.html"
+
+  tasks:
+    - name: Coletar rotas da tabela {{ tabela }}
+      shell: ip route show table {{ tabela }}
+      register: route_output
+      changed_when: false
+
+    - name: Inicializar lista de rotas
+      set_fact:
+        routes_struct: []
+
+    - name: Montar lista estruturada (Destino, Gateway, Interface)
+      set_fact:
+        routes_struct: "{{ routes_struct + [ {'dest': (item.split()[0]),
+                                              'gw':   (item.split()[2]),
+                                              'iface':(item.split()[4]) } ] }}"
+      loop: "{{ route_output.stdout_lines | default([]) }}"
+      when:
+        - item is match('^\\S+\\s+via\\s+\\S+\\s+dev\\s+\\S+')
+
+    - name: (Opcional) Mostrar tabela no terminal
+      debug:
+        msg: |
+          Destino               Gateway            Interface
+          --------------------  ------------------ ----------
+          {% for r in routes_struct %}
+          {{ "%-20s  %-18s  %-10s" | format(r.dest, r.gw, r.iface) }}
+          {% endfor %}
+
+    - name: Gerar conteúdo HTML
+      set_fact:
+        html_content: |
+          <!DOCTYPE html>
+          <html lang="pt-BR">
+          <head>
+            <meta charset="UTF-8">
+            <title>Relatório de Rotas - {{ inventory_hostname }}</title>
+            <style>
+              body { background:#121212; color:#eee; font-family:Arial, sans-serif; padding:20px; }
+              h1 { text-align:center; color:#00bcd4; }
+              table { width:100%; border-collapse:collapse; margin-top:20px; }
+              th, td { border:1px solid #444; padding:8px 10px; text-align:left; }
+              th { background:#00bcd4; color:#fff; }
+              tr:nth-child(even){ background:#1e1e1e; }
+              tr:hover { background:#2c2c2c; }
+              .empty { color:#aaa; margin-top:16px; text-align:center; }
+              footer { text-align:center; margin-top:25px; color:#777; font-size:.9em; }
+            </style>
+          </head>
+          <body>
+            <h1>Relatório de Rotas - {{ inventory_hostname }} (tabela {{ tabela }})</h1>
+
+            {% if routes_struct|length == 0 %}
+              <div class="empty">Nenhuma rota encontrada na tabela {{ tabela }}.</div>
+            {% else %}
+              <table>
+                <thead>
+                  <tr><th>Destino</th><th>Gateway</th><th>Interface</th></tr>
+                </thead>
+                <tbody>
+                  {% for r in routes_struct %}
+                    <tr>
+                      <td>{{ r.dest }}</td>
+                      <td>{{ r.gw }}</td>
+                      <td>{{ r.iface }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% endif %}
+
+            <footer>Gerado em {{ ansible_date_time.date }} às {{ ansible_date_time.time }}.</footer>
+          </body>
+          </html>
+
+    - name: Salvar relatório HTML no host remoto
+      copy:
+        content: "{{ html_content }}"
+        dest: "{{ saida_html }}"
+        mode: "0644"
+
+    - name: Exibir caminho do relatório
+      debug:
+        msg: "Relatório salvo em {{ saida_html }} no host {{ inventory_hostname }}"

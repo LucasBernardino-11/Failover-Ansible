@@ -1,0 +1,6 @@
+- name: Clear routes (rt2)
+  hosts: site_padrao
+  become: true
+  tasks:
+    - name: clear routing rt2
+      command: ip route flush table rt2

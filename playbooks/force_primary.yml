@@ -1,0 +1,6 @@
+- name: Force PRIMARY routes (rt2)
+  hosts: site_padrao
+  become: true
+  tasks:
+    - name: Apply primary routing now
+      command: /usr/local/bin/route_primary_rt2.sh

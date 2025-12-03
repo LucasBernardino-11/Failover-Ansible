@@ -1,0 +1,84 @@
+---
+- name: Reset não-destrutivo do IP-SLA (mantém instalação)
+  hosts: site_padrao
+  become: true
+  gather_facts: false
+
+  vars:
+    # ajuste se você mudou algo na instalação
+    table_name: "rt2"
+    table_id: 200
+    policy_rule_priority: 1000
+
+    # qual rota aplicar ao “primar” após o reset: primary | backup | none
+    prime_mode: "primary"
+
+  tasks:
+    - name: Parar service e timer (sem desabilitar)
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - ip-sla.service
+        - ip-sla.timer
+      ignore_errors: true
+
+    - name: Garantir alias da tabela no rt_tables (opcional, idempotente)
+      lineinfile:
+        path: /etc/iproute2/rt_tables
+        regexp: '^\s*{{ table_id }}\s+{{ table_name }}\b'
+        line: '{{ table_id }} {{ table_name }}'
+        state: present
+
+    - name: Flush de rotas da tabela (usa nome e id; compatível com versões antigas)
+      shell: |
+        ip route flush table {{ table_name }} || true
+        ip route flush table {{ table_id }}   || true
+      changed_when: false
+
+    - name: Recriar ip rule com prioridade definida (remove duplicadas)
+      shell: |
+        ip rule del priority {{ policy_rule_priority }} 2>/dev/null || true
+        ip rule add priority {{ policy_rule_priority }} lookup {{ table_id }}
+      args:
+        executable: /bin/bash
+
+    - name: Verificar scripts de rota existentes
+      stat:
+        path: "/usr/local/bin/route_{{ item }}_rt2.sh"
+      register: route_scripts
+      loop:
+        - primary
+        - backup
+
+    - name: Primar rotas conforme configuração (primary/backup/none)
+      when:
+        - prime_mode in ['primary','backup']
+        - (route_scripts.results | selectattr('item','equalto', prime_mode) | first).stat.exists | default(false)
+      command: "/usr/local/bin/route_{{ prime_mode }}_rt2.sh"
+
+    - name: Rodar uma checagem manual agora (executa 1x)
+      systemd:
+        name: ip-sla.service
+        state: started
+      ignore_errors: true
+
+    - name: Religar o timer (volta a rodar a cada 30s)
+      systemd:
+        name: ip-sla.timer
+        enabled: true
+        state: started
+
+    - name: Mostrar status pós-reset
+      shell: |
+        echo '=== ip rule ==='
+        ip rule show | sed -n '1,200p'
+        echo
+        echo '=== rotas {{ table_name }}/{{ table_id }} ==='
+        ip route show table {{ table_name }} || true
+        ip route show table {{ table_id }}   || true
+      register: diag
+      changed_when: false
+
+    - debug:
+        msg: "{{ diag.stdout }}"

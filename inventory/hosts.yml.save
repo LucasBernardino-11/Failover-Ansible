@@ -1,0 +1,9 @@
+all:
+  children:
+    site_padrao:
+      hosts:
+        177.53.16.9:        # IP do servidor que terá o failover
+          ansible_user: ansible
+          ansible_ssh_pass: nexus63987
+
+
